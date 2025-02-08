@@ -7,3 +7,6 @@ This is the repository that will show my work with GitHub
 ## Links
 - [Changelog](./changelog.md)
 - [Installation Guide](./install.md)
+
+## Network graph
+![Graph](/graph.png)
