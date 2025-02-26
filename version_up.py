@@ -1,88 +1,240 @@
-import argparse
-import re
+import sys
 from datetime import datetime
 
+# --- Вспомогательные функции ---
+
+def get_timestamp():
+    """Генерирует метку времени в формате ДД.ММ.ГГГГ ЧЧ:ММ:СС.ссс"""
+    return datetime.now().strftime("%d.%m.%Y %H:%M:%S.%f")[:-3]
+
+def read_version():
+    """Читает текущую версию из файла 'version', по умолчанию '0.0.1', если файл не найден"""
+    try:
+        with open('version', 'r') as f:
+            version = f.readline().strip()
+            if not version:
+                version = '0.0.1'
+                write_version(version)
+            return version
+    except FileNotFoundError:
+        version = '0.0.1'
+        write_version(version)
+        return version
+
+def write_version(version):
+    """Записывает версию в файл 'version'"""
+    with open('version', 'w') as f:
+        f.write(version + '\n')
+
 def parse_version(version_str):
-    """Разобрать строку версии в кортеж (major, minor, patch)."""
+    """Разбирает строку версии на major, minor, patch"""
     try:
         major, minor, patch = map(int, version_str.split('.'))
-        return (major, minor, patch)
-    except (ValueError, AttributeError):
-        raise ValueError("Неверный формат версии. Используйте X.Y.Z (например, 1.0.0)")
+        return major, minor, patch
+    except ValueError:
+        raise ValueError(f"Неверный формат версии: {version_str}")
 
-def increment_version(current_version, update_type):
-    """Увеличить версию на основе типа обновления (major, minor, patch)."""
+def update_version(current_version, update_type):
+    """Обновляет версию в зависимости от типа обновления"""
     major, minor, patch = parse_version(current_version)
-
-    if update_type.lower() == "major":
+    if update_type == 'patch':
+        patch += 1
+    elif update_type == 'minor':
+        minor += 1
+        patch = 0
+    elif update_type == 'major':
         major += 1
         minor = 0
         patch = 0
-    elif update_type.lower() == "minor":
-        minor += 1
-        patch = 0
-    elif update_type.lower() == "patch":
-        patch += 1
     else:
-        raise ValueError("Тип обновления должен быть 'major', 'minor' или 'patch'")
-
+        raise ValueError(f"Неверный тип обновления: {update_type}")
     return f"{major}.{minor}.{patch}"
 
-def get_current_version(changelog_path="changelog.md"):
-    """Получить текущую версию из файла changelog.md."""
+def log_update(old_version, new_version, update_type):
+    """Логирует обновление версии в 'version_log'"""
+    timestamp = get_timestamp()
+    log_entry = f"[{new_version}] <- [{old_version}] [{timestamp}] обновление {update_type}\n"
     try:
-        with open(changelog_path, "r", encoding="utf-8") as f:
-            content = f.read()
-            # Ищем последнюю версию в формате [X.Y.Z]
-            match = re.search(r"\[(\d+\.\d+\.\d+)\]", content)
-            if match:
-                return match.group(1)
-            raise ValueError("Не удалось найти версию в changelog.md")
+        with open('version_log', 'r') as f:
+            content = f.readlines()
     except FileNotFoundError:
-        print("Файл changelog.md не найден. Используем версию по умолчанию 1.0.0")
-        return "1.0.0"
+        content = []
+    with open('version_log', 'w') as f:
+        f.write(log_entry)
+        f.writelines(content)
 
-def log_update(old_version, new_version, update_type, timestamp):
-    """Зафиксировать обновление версии с временной меткой в формате changelog.md."""
-    date = timestamp if timestamp else datetime.now().strftime("%d.%m.%Y")
-    log_entry = f"\n## [{new_version}] - {date}\n### {update_type.capitalize()}\n- Automatic version update\n"
-    return log_entry
-
-def update_version(update_type="patch", timestamp=None, changelog_path="changelog.md"):
-    """Обновить версию и добавить запись в changelog.md."""
-    # Получаем текущую версию из changelog
-    current_version = get_current_version(changelog_path)
-
-    if not current_version or not isinstance(current_version, str):
-        raise ValueError("Версия должна быть непустой строкой")
-
-    # Использовать указанную временную метку или текущую дату
-    if timestamp is None:
-        timestamp = datetime.now().strftime("%d.%m.%Y %H:%M:%S.%f")[:-3]
-    date_for_changelog = datetime.now().strftime("%d.%m.%Y")  # Только дата для changelog
-
+def log_command(command):
+    """Логирует выполненную команду в 'logs'"""
+    timestamp = get_timestamp()
+    log_entry = f"[{timestamp}] {command}\n"
     try:
-        new_version = increment_version(current_version, update_type)
-        log_entry = log_update(current_version, new_version, update_type, date_for_changelog)
+        with open('logs', 'r') as f:
+            content = f.readlines()
+    except FileNotFoundError:
+        content = []
+    with open('logs', 'w') as f:
+        f.write(log_entry)
+        f.writelines(content)
 
-        # Добавляем новую запись в changelog.md
-        with open(changelog_path, "a", encoding="utf-8") as f:
-            f.write(log_entry)
-
-        print(f"Новая версия: {new_version}")
-        print(f"Обновлен changelog.md с записью:\n{log_entry}")
-        return new_version, log_entry
-    except ValueError as e:
-        raise e
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Обновление версии проекта и changelog.md")
-    parser.add_argument("--update-type", default="patch", choices=["major", "minor", "patch"],
-                       help="Тип обновления: major, minor или patch")
-    parser.add_argument("--timestamp", help="Временная метка в формате ДД.ММ.ГГГГ ЧЧ:ММ:СС.XXX")
-    args = parser.parse_args()
-
+def read_log(file_path, lines=None):
+    """Читает содержимое лог-файла, опционально ограничивая количество строк"""
     try:
-        update_version(args.update_type, args.timestamp)
-    except ValueError as e:
-        print(f"Ошибка: {e}")
+        with open(file_path, 'r') as f:
+            content = f.readlines()
+            if lines is None:
+                return ''.join(content)
+            else:
+                return ''.join(content[:lines])
+    except FileNotFoundError:
+        return ''
+
+# --- Обработчики команд ---
+
+def handle_version():
+    """Обработчик команды 'version'"""
+    version = read_version()
+    print(version)
+    log_command('version')
+
+def handle_help():
+    """Обработчик команды 'help'"""
+    help_text = """
+Доступные команды:
+  version       - Показать текущую версию
+  help          - Показать это сообщение с помощью
+  patch         - Увеличить патч-версию
+  minor         - Увеличить минорную версию и сбросить патч
+  major         - Увеличить мажорную версию и сбросить минор и патч
+  drop          - Сбросить версию до 0.0.1 и очистить логи
+  clear         - Очистить логи команд
+  undo          - Вернуть предыдущую версию
+  version_log [n] - Показать лог версий (первые n строк, если n указано)
+  log [n]       - Показать лог команд (первые n строк, если n указано)
+"""
+    print(help_text)
+    log_command('help')
+
+def handle_patch():
+    """Обработчик команды 'patch'"""
+    current_version = read_version()
+    new_version = update_version(current_version, 'patch')
+    write_version(new_version)
+    log_update(current_version, new_version, 'patch')
+    log_command('patch')
+    print(f"Версия обновлена до {new_version}")
+
+def handle_minor():
+    """Обработчик команды 'minor'"""
+    current_version = read_version()
+    new_version = update_version(current_version, 'minor')
+    write_version(new_version)
+    log_update(current_version, new_version, 'minor')
+    log_command('minor')
+    print(f"Версия обновлена до {new_version}")
+
+def handle_major():
+    """Обработчик команды 'major'"""
+    current_version = read_version()
+    new_version = update_version(current_version, 'major')
+    write_version(new_version)
+    log_update(current_version, new_version, 'major')
+    log_command('major')
+    print(f"Версия обновлена до {new_version}")
+
+def handle_drop():
+    """Обработчик команды 'drop'"""
+    write_version('0.0.1')
+    open('version_log', 'w').close()
+    open('logs', 'w').close()
+    log_command('drop')
+    print("Версия сброшена до 0.0.1, логи очищены")
+
+def handle_clear():
+    """Обработчик команды 'clear'"""
+    open('logs', 'w').close()
+    log_command('clear')
+    print("Логи команд очищены")
+
+def handle_undo():
+    """Обработчик команды 'undo'"""
+    try:
+        with open('version_log', 'r') as f:
+            first_line = f.readline().strip()
+            if not first_line:
+                print("Нет предыдущей версии для отмены")
+                log_command('undo')
+                return
+            parts = first_line.split()
+            if len(parts) < 4:
+                print("Неверная запись в логе версий")
+                log_command('undo')
+                return
+            reverted_version = parts[2][1:-1]  # Извлекаем [old_version]
+            current_version = read_version()
+            write_version(reverted_version)
+            log_update(current_version, reverted_version, 'undo')
+            log_command('undo')
+            print(f"Версия возвращена к {reverted_version}")
+    except FileNotFoundError:
+        print("Лог версий не найден")
+        log_command('undo')
+
+def handle_version_log(args):
+    """Обработчик команды 'version_log'"""
+    if args:
+        try:
+            n = int(args[0])
+            if n < 0:
+                print("Количество строк должно быть неотрицательным")
+            else:
+                print(read_log('version_log', n))
+        except ValueError:
+            print("Неверное количество строк")
+    else:
+        print(read_log('version_log'))
+    log_command('version_log' + (' ' + args[0] if args else ''))
+
+def handle_log(args):
+    """Обработчик команды 'log'"""
+    if args:
+        try:
+            n = int(args[0])
+            if n < 0:
+                print("Количество строк должно быть неотрицательным")
+            else:
+                print(read_log('logs', n))
+        except ValueError:
+            print("Неверное количество строк")
+    else:
+        print(read_log('logs'))
+    log_command('log' + (' ' + args[0] if args else ''))
+
+# --- Основная функция ---
+
+def main():
+    """Парсит аргументы командной строки и вызывает соответствующий обработчик"""
+    if len(sys.argv) < 2:
+        print("Команда не указана. Используйте 'help' для списка команд.")
+        return
+    command = sys.argv[1]
+    args = sys.argv[2:]
+    handlers = {
+        'version': handle_version,
+        'help': handle_help,
+        'patch': handle_patch,
+        'minor': handle_minor,
+        'major': handle_major,
+        'drop': handle_drop,
+        'clear': handle_clear,
+        'undo': handle_undo,
+        'version_log': lambda: handle_version_log(args),
+        'log': lambda: handle_log(args)
+    }
+    handler = handlers.get(command)
+    if handler:
+        handler()
+    else:
+        print(f"Неизвестная команда: {command}. Используйте 'help' для списка команд.")
+
+if __name__ == '__main__':
+    main()
