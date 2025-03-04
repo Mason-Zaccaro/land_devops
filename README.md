@@ -1,4 +1,4 @@
-# DevOps_Control_Point_1.6
+# Land_DevOps
 ![Logo](/logo.png)
 
 ## What does it do?
